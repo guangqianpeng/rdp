@@ -174,16 +174,6 @@ public:
 			if (ret == -1 && errno != EINTR)
 				LOG_SYSFATAL("poll() error");
 
-			conn_->update(current());
-			if (conn_->timeoutClosed()) {
-				LOG_ERROR("connection timeout");
-				return;
-			}
-			if (conn_->normalClosed()) {
-				LOG_INFO("Connection closed normally");
-				return;
-			}
-
 			if (stdinfd_.revents & POLLIN) {
 				while (true) {
 					ssize_t n = ::read(stdinfd_.fd, buffer, sizeof(buffer));
@@ -224,6 +214,7 @@ public:
 					if (ret == ERR_AGAIN) break;
 					else if (ret == 0) {
 						conn_->stopSend();
+						enableUserInput(false);
 						break;
 					}
 					else if (ret < 0) {
@@ -236,6 +227,16 @@ public:
 							LOG_SYSFATAL("::write() error");
 					}
 				}
+			}
+
+			conn_->update(current());
+			if (conn_->timeoutClosed()) {
+				LOG_ERROR("connection timeout");
+				return;
+			}
+			if (conn_->normalClosed()) {
+				LOG_INFO("Connection closed normally");
+				return;
 			}
 		}
 	}
@@ -283,8 +284,9 @@ void usage()
 int main(int argc, char **argv)
 {
 	int opt, logLevel = LOG_LEVEL_INFO;
+	uint32_t mtu = 1500 - 20 - ENCODE_OVERHEAD;
 	char *localAddr = nullptr, *remoteAddr = nullptr;
-	while ( (opt = getopt(argc, argv, "l:c:v")) != -1) {
+	while ( (opt = getopt(argc, argv, "l:c:m:v")) != -1) {
 		switch (opt) {
 			case 'l':
 				localAddr = optarg;
@@ -294,6 +296,13 @@ int main(int argc, char **argv)
 				break;
 			case 'v':
 				logLevel = LOG_LEVEL_DEBUG;
+				break;
+			case 'm':
+				mtu = atoi(optarg);
+				if (mtu == 0 || mtu > 65535) {
+					fprintf(stderr, "bad mtu");
+					exit(EXIT_FAILURE);
+				}
 				break;
 			default:
 				usage();
@@ -309,7 +318,7 @@ int main(int argc, char **argv)
 	set_log_fd(STDERR_FILENO);
 	set_log_level(logLevel);
 
-	Connection conn(1, 1400, 2);
+	Connection conn(1, mtu, 5);
 	UdpSocket sock(&conn);
 	conn.setOutputCallback(std::bind(
 			&UdpSocket::output, &sock, _1, _2, _3));

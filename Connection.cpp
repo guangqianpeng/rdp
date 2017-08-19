@@ -27,7 +27,7 @@ const uint32_t MIN_SEND_WIND = MAX_FRAGMENTS;
 const uint32_t MIN_RECV_WIND = MAX_FRAGMENTS;
 const uint32_t INIT_PROBE_WAIT = 500;
 const uint32_t MAX_PROBE_WAIT = 5000;
-const uint32_t MIN_RTO = 1000;
+const uint32_t MIN_RTO = 500;
 const uint32_t MAX_RTO = 15000;
 const uint32_t MAX_RESEND_TIME = 6;
 const uint32_t MSL = 5000;
@@ -242,6 +242,7 @@ void Connection::input(const char *data, uint32_t size)
 				break;
 			case CMD_ACK:
 				ackSendBuffer(seq);
+
 				rtte_.update(ts, current_);
 				/* for fast ack */
 				if (!recvAck) {
@@ -459,10 +460,13 @@ void Connection::flushSendBuffer()
 		}
 		else if (seg->fastack >= 3) {
 			/* fast resend */
+			seg->rto = rtte_.rto();
+			seg->resendts = current_ + seg->rto;
+			seg->fastack = 0;
+
 			uint32_t inflight = static_cast<uint32_t>(sendBuffer_.size());
 			cong_.onFastResend(inflight);
 			fastRsendTimes_++;
-			seg->fastack = 0;
 			needSend = true;
 
 			LOG_DEBUG("%u %s fast resend %u xmit %u",
